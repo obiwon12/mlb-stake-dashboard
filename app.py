@@ -7,18 +7,39 @@ import matplotlib.pyplot as plt
 import json
 import os
 
-# Mapping from API names to dashboard names
 TEAM_NAME_MAP = {
-    'St. Louis Cardinals': 'St. Louis', 'Pittsburgh Pirates': 'Pittsburgh',
-    'New York Yankees': 'NY Yankees', 'Toronto Blue Jays': 'Toronto',
-    'Cincinnati Reds': 'Cincinnati', 'Boston Red Sox': 'Boston',
-    'Tampa Bay Rays': 'Tampa Bay', 'Baltimore Orioles': 'Baltimore',
-    'Texas Rangers': 'Texas', 'Kansas City Royals': 'Kansas City',
-    'Seattle Mariners': 'Seattle', 'San Francisco Giants': 'SF Giants',
-    'Arizona Diamondbacks': 'Arizona'
+    'Arizona Diamondbacks': 'Arizona',
+    'Atlanta Braves': 'Atlanta',
+    'Baltimore Orioles': 'Baltimore',
+    'Boston Red Sox': 'Boston',
+    'Chicago Cubs': 'Cubs',
+    'Chicago White Sox': 'White Sox',
+    'Cincinnati Reds': 'Cincinnati',
+    'Cleveland Guardians': 'Cleveland',
+    'Colorado Rockies': 'Colorado',
+    'Detroit Tigers': 'Detroit',
+    'Houston Astros': 'Houston',
+    'Kansas City Royals': 'Kansas City',
+    'Los Angeles Angels': 'Angels',
+    'Los Angeles Dodgers': 'Dodgers',
+    'Miami Marlins': 'Miami',
+    'Milwaukee Brewers': 'Milwaukee',
+    'Minnesota Twins': 'Minnesota',
+    'New York Mets': 'NY Mets',
+    'New York Yankees': 'NY Yankees',
+    'Oakland Athletics': 'Oakland',
+    'Philadelphia Phillies': 'Philadelphia',
+    'Pittsburgh Pirates': 'Pittsburgh',
+    'San Diego Padres': 'San Diego',
+    'San Francisco Giants': 'SF Giants',
+    'Seattle Mariners': 'Seattle',
+    'St. Louis Cardinals': 'St. Louis',
+    'Tampa Bay Rays': 'Tampa Bay',
+    'Texas Rangers': 'Texas',
+    'Toronto Blue Jays': 'Toronto',
+    'Washington Nationals': 'Washington'
 }
 
-# Fetch MLB team stats from public API with error handling and fallback
 def get_live_run_projections():
     teams = {v: k for k, v in TEAM_NAME_MAP.items()}
     base_url = "https://statsapi.mlb.com/api/v1/teams/stats"
@@ -46,6 +67,7 @@ def get_live_run_projections():
         if abbr:
             team_runs[abbr] = avg_runs
 
+    # Use static games or simulate matchups if live not available
     return pd.DataFrame({
         'Date': ['2025-06-30']*7,
         'Away Team': ['St. Louis', 'NY Yankees', 'Cincinnati', 'Baltimore', 'Kansas City', 'SF Giants', 'Toronto'],
@@ -56,11 +78,9 @@ def get_live_run_projections():
         'Home Runs': [team_runs.get(t, 4.5) for t in ['Pittsburgh', 'Toronto', 'Boston', 'Texas', 'Seattle', 'Arizona', 'NY Yankees']]
     })
 
-# Fetch live odds from TheOddsAPI
 def get_stake_odds():
     api_key = "81e55af3da11ceef34cc2920b94ba415"
     url = f"https://api.the-odds-api.com/v4/sports/baseball_mlb/odds/?regions=us&markets=totals,h2h&oddsFormat=american&apiKey={api_key}"
-
     try:
         response = requests.get(url, timeout=10)
         response.raise_for_status()
@@ -82,23 +102,18 @@ def get_stake_odds():
                 continue
 
             key = (away, home)
-
             total = next((m for m in game["bookmakers"][0]["markets"] if m["key"] == "totals"), None)
             total_line = total["outcomes"][0]["point"] if total else None
 
             h2h = next((m for m in game["bookmakers"][0]["markets"] if m["key"] == "h2h"), None)
             moneyline = {TEAM_NAME_MAP.get(o["name"], o["name"]): o["price"] for o in h2h["outcomes"]} if h2h else {}
 
-            odds_data[key] = {
-                "total_line": total_line,
-                "moneyline": moneyline
-            }
+            odds_data[key] = {"total_line": total_line, "moneyline": moneyline}
         except:
             continue
 
     return odds_data
 
-# Display top 3 bets
 @st.cache_data
 def get_top_confidence_plays(df):
     if "Confidence" not in df.columns:
@@ -108,10 +123,15 @@ def get_top_confidence_plays(df):
     df['Score'] = df['Confidence'].map(confidence_map)
     return df.sort_values(by='Score', ascending=False).head(3)
 
-# Inject top picks into Streamlit view
+# Start Streamlit app
 st.subheader("🏆 Top 3 Picks by Confidence")
 df = get_live_run_projections()
 odds_data = get_stake_odds()
+
+# Debug section
+st.write("📡 Odds Keys Returned:", list(odds_data.keys()))
+st.write("📊 Projections Data Preview:")
+st.dataframe(df)
 
 if df.empty or not odds_data:
     st.warning("⚠️ No data available from the MLB API or odds source. Top picks cannot be displayed.")
