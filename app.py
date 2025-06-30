@@ -8,7 +8,6 @@ import json
 import os
 
 # Fetch MLB team stats from public API with error handling and fallback
-
 def get_live_run_projections():
     teams = {
         'St. Louis': 'St. Louis Cardinals', 'Pittsburgh': 'Pittsburgh Pirates',
@@ -35,7 +34,7 @@ def get_live_run_projections():
                 data = json.load(f)
         else:
             st.error("❌ No cached data available. Displaying fallback averages.")
-            return pd.DataFrame({})
+            return pd.DataFrame()
 
     team_runs = {}
     for team_stat in data['stats'][0]['splits']:
@@ -72,14 +71,21 @@ def get_stake_odds():
 # Display top 3 bets
 @st.cache_data
 def get_top_confidence_plays(df):
+    if "Confidence" not in df.columns:
+        st.error("Missing 'Confidence' column in data.")
+        return pd.DataFrame()
     confidence_map = {'🟩 2U': 3, '⬜️ 1U': 2, '🟥 0.5U': 1}
     df['Score'] = df['Confidence'].map(confidence_map)
     return df.sort_values(by='Score', ascending=False).head(3)
 
 # Inject top picks into Streamlit view
 st.subheader("🏆 Top 3 Picks by Confidence")
-try:
-    top_picks = get_top_confidence_plays(get_live_run_projections())
-    st.dataframe(top_picks.drop(columns=["Score"]))
-except:
-    st.warning("Unable to display top picks.")
+df = get_live_run_projections()
+if df.empty:
+    st.warning("⚠️ No data available from the MLB API or cache. Top picks cannot be displayed.")
+else:
+    top_picks = get_top_confidence_plays(df)
+    if top_picks.empty:
+        st.warning("⚠️ No confident plays found for today.")
+    else:
+        st.dataframe(top_picks.drop(columns=["Score"]))
