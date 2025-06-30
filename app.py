@@ -68,6 +68,27 @@ def get_stake_odds():
         ('SF Giants', 'Arizona'): {'total_line': 8.5, 'moneyline': {'SF Giants': -135, 'Arizona': +115}},
     }
 
+# Confidence scoring and unit assignment
+def calculate_confidence_values(df, odds_data):
+    def calculate_values(row):
+        teams = (row['Away Team'], row['Home Team'])
+        total_proj = row['Away Runs'] + row['Home Runs']
+        odds = odds_data.get(teams, {})
+        total_line = odds.get('total_line', np.nan)
+
+        diff = abs(total_proj - total_line)
+        if diff >= 1.0:
+            confidence = '🟩 2U'
+        elif diff >= 0.5:
+            confidence = '⬜️ 1U'
+        else:
+            confidence = '🟥 0.5U'
+
+        return confidence
+
+    df['Confidence'] = df.apply(calculate_values, axis=1)
+    return df
+
 # Display top 3 bets
 @st.cache_data
 def get_top_confidence_plays(df):
@@ -81,9 +102,11 @@ def get_top_confidence_plays(df):
 # Inject top picks into Streamlit view
 st.subheader("🏆 Top 3 Picks by Confidence")
 df = get_live_run_projections()
+odds_data = get_stake_odds()
 if df.empty:
     st.warning("⚠️ No data available from the MLB API or cache. Top picks cannot be displayed.")
 else:
+    df = calculate_confidence_values(df, odds_data)
     top_picks = get_top_confidence_plays(df)
     if top_picks.empty:
         st.warning("⚠️ No confident plays found for today.")
