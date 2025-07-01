@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 import json
 import os
 
-# Mapping from API names to dashboard names
+# --- UPDATED TEAM NAME MAP ---
 TEAM_NAME_MAP = {
     'St. Louis Cardinals': 'St. Louis', 'Pittsburgh Pirates': 'Pittsburgh',
     'New York Yankees': 'NY Yankees', 'Toronto Blue Jays': 'Toronto',
@@ -15,8 +15,17 @@ TEAM_NAME_MAP = {
     'Tampa Bay Rays': 'Tampa Bay', 'Baltimore Orioles': 'Baltimore',
     'Texas Rangers': 'Texas', 'Kansas City Royals': 'Kansas City',
     'Seattle Mariners': 'Seattle', 'San Francisco Giants': 'SF Giants',
-    'Arizona Diamondbacks': 'Arizona'
+    'Arizona Diamondbacks': 'Arizona', 'Atlanta Braves': 'Atlanta',
+    'Miami Marlins': 'Miami', 'Philadelphia Phillies': 'Philadelphia',
+    'Chicago Cubs': 'Chicago Cubs', 'Chicago White Sox': 'Chicago WS',
+    'Cleveland Guardians': 'Cleveland', 'Detroit Tigers': 'Detroit',
+    'Houston Astros': 'Houston', 'Los Angeles Angels': 'LA Angels',
+    'Los Angeles Dodgers': 'LA Dodgers', 'Milwaukee Brewers': 'Milwaukee',
+    'Minnesota Twins': 'Minnesota', 'New York Mets': 'NY Mets',
+    'Oakland Athletics': 'Oakland', 'San Diego Padres': 'San Diego',
+    'Colorado Rockies': 'Colorado', 'Washington Nationals': 'Washington'
 }
+
 
 # Fetch MLB team stats from public API with error handling and fallback
 def get_live_run_projections():
@@ -83,20 +92,21 @@ def get_stake_odds():
         response = requests.get(url, timeout=10)
         response.raise_for_status()
         games = response.json()
-    except Exception:
-        st.error("❌ Failed to fetch live odds from TheOddsAPI.")
+    except Exception as e:
+        st.error(f"❌ Failed to fetch live odds: {e}")
         return {}
 
     odds_data = {}
     for game in games:
         try:
             home_full = game["home_team"]
-            teams = game["teams"]
-            away_full = [t for t in teams if t != home_full][0]
+            away_full = [t for t in game["teams"] if t != home_full][0]
 
             away = TEAM_NAME_MAP.get(away_full)
             home = TEAM_NAME_MAP.get(home_full)
+
             if not away or not home:
+                st.warning(f"⚠️ Unmapped teams: {away_full}, {home_full}")
                 continue
 
             key = tuple(sorted((away, home)))
@@ -111,10 +121,12 @@ def get_stake_odds():
                 "total_line": total_line,
                 "moneyline": moneyline
             }
-        except:
+        except Exception as e:
+            st.warning(f"⚠️ Could not parse game odds: {e}")
             continue
 
     return odds_data
+
 
 # Display top 3 bets
 @st.cache_data
