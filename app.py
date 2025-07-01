@@ -27,6 +27,62 @@ TEAM_NAME_MAP = {
 }
 
 
+def get_live_run_projections():
+    teams = {v: k for k, v in TEAM_NAME_MAP.items()}
+    base_url = "https://statsapi.mlb.com/api/v1/teams/stats"
+    params = {"season": "2024", "group": "hitting", "stats": "season"}
+
+    try:
+        response = requests.get(base_url, params=params, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+        with open("cached_team_stats.json", "w") as f:
+            json.dump(data, f)
+    except Exception:
+        st.warning("⚠️ Using cached data due to API issue.")
+        if os.path.exists("cached_team_stats.json"):
+            with open("cached_team_stats.json", "r") as f:
+                data = json.load(f)
+        else:
+            st.error("❌ No cached data available. Displaying fallback averages.")
+            return pd.DataFrame()
+
+    team_runs = {}
+    for team_stat in data['stats'][0]['splits']:
+        name = team_stat['team']['name']
+        avg_runs = float(team_stat['stat'].get('runsPerGame', 4.5))
+        abbr = TEAM_NAME_MAP.get(name)
+        if abbr:
+            team_runs[abbr] = avg_runs
+
+    matchups = [
+        ('St. Louis', 'Pittsburgh'),
+        ('NY Yankees', 'Toronto'),
+        ('Cincinnati', 'Boston'),
+        ('Baltimore', 'Texas'),
+        ('Kansas City', 'Seattle'),
+        ('SF Giants', 'Arizona')
+    ]
+
+    seen = set()
+    unique_matchups = []
+    for away, home in matchups:
+        key = tuple(sorted((away, home)))
+        if key not in seen:
+            seen.add(key)
+            unique_matchups.append((away, home))
+
+    return pd.DataFrame({
+        'Date': ['2025-06-30'] * len(unique_matchups),
+        'Away Team': [m[0] for m in unique_matchups],
+        'Home Team': [m[1] for m in unique_matchups],
+        'Away SP': ['Erick Fedde', 'Carlos Rodon', 'Chase Burns', 'Trevor Rogers', 'Michael Wacha', 'Logan Webb'],
+        'Home SP': ['Andrew Heaney', 'Max Scherzer', 'Garrett Crochet', 'Patrick Corbin', 'George Kirby', 'Ryne Nelson'],
+        'Away Runs': [team_runs.get(t[0], 4.5) for t in unique_matchups],
+        'Home Runs': [team_runs.get(t[1], 4.5) for t in unique_matchups]
+    })
+
+
 # Fetch MLB team stats from public API with error handling and fallback
 def get_stake_odds():
     api_key = "81e55af3da11ceef34cc2920b94ba415"
@@ -48,7 +104,6 @@ def get_stake_odds():
             if not home_full or "bookmakers" not in game:
                 continue
 
-            # Extract teams from outcomes in any available market
             outcomes = []
             for bookmaker in game["bookmakers"]:
                 for market in bookmaker["markets"]:
@@ -100,7 +155,6 @@ def get_stake_odds():
     return odds_data
 
 
-
 # Display top 3 bets
 @st.cache_data
 def get_top_confidence_plays(df):
@@ -110,6 +164,7 @@ def get_top_confidence_plays(df):
     confidence_map = {'🟩 2U': 3, '⬜️ 1U': 2, '🟥 0.5U': 1}
     df['Score'] = df['Confidence'].map(confidence_map)
     return df.sort_values(by='Score', ascending=False).head(3)
+
 
 # Inject top picks into Streamlit view
 st.subheader("🏆 Top 3 Picks by Confidence")
