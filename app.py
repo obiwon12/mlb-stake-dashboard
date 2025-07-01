@@ -2,10 +2,8 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import requests
-from datetime import datetime
-import matplotlib.pyplot as plt
 import json
-import os
+from datetime import datetime
 
 # --- UPDATED TEAM NAME MAP ---
 TEAM_NAME_MAP = {
@@ -26,67 +24,48 @@ TEAM_NAME_MAP = {
     'Colorado Rockies': 'Colorado', 'Washington Nationals': 'Washington'
 }
 
-
+# --- Live Run Projections via ESPN Scraper ---
 def get_live_run_projections():
-    teams = {v: k for k, v in TEAM_NAME_MAP.items()}
-    base_url = "https://statsapi.mlb.com/api/v1/teams/stats"
-    params = {"season": "2024", "group": "hitting", "stats": "season"}
-
+    url = "https://site.api.espn.com/apis/site/v2/sports/baseball/mlb/scoreboard"
     try:
-        response = requests.get(base_url, params=params, timeout=10)
+        response = requests.get(url)
         response.raise_for_status()
-        data = response.json()
-        with open("cached_team_stats.json", "w") as f:
-            json.dump(data, f)
-    except Exception:
-        st.warning("⚠️ Using cached data due to API issue.")
-        if os.path.exists("cached_team_stats.json"):
-            with open("cached_team_stats.json", "r") as f:
-                data = json.load(f)
-        else:
-            st.error("❌ No cached data available. Displaying fallback averages.")
-            return pd.DataFrame()
+        games = response.json().get("events", [])
+    except Exception as e:
+        st.error(f"❌ Failed to fetch live projections: {e}")
+        return pd.DataFrame()
 
-    team_runs = {}
-    for team_stat in data['stats'][0]['splits']:
-        name = team_stat['team']['name']
-        avg_runs = float(team_stat['stat'].get('runsPerGame', 4.5))
-        abbr = TEAM_NAME_MAP.get(name)
-        if abbr:
-            team_runs[abbr] = avg_runs
+    rows = []
+    for game in games:
+        competitions = game.get("competitions", [{}])[0]
+        competitors = competitions.get("competitors", [])
+        if len(competitors) < 2:
+            continue
 
-    matchups = [
-        ('St. Louis', 'Pittsburgh'),
-        ('NY Yankees', 'Toronto'),
-        ('Cincinnati', 'Boston'),
-        ('Baltimore', 'Texas'),
-        ('Kansas City', 'Seattle'),
-        ('SF Giants', 'Arizona')
-    ]
+        away_team = competitors[0] if competitors[0].get("homeAway") == "away" else competitors[1]
+        home_team = competitors[0] if competitors[0].get("homeAway") == "home" else competitors[1]
 
-    seen = set()
-    unique_matchups = []
-    for away, home in matchups:
-        key = tuple(sorted((away, home)))
-        if key not in seen:
-            seen.add(key)
-            unique_matchups.append((away, home))
+        away = TEAM_NAME_MAP.get(away_team.get("team", {}).get("displayName"))
+        home = TEAM_NAME_MAP.get(home_team.get("team", {}).get("displayName"))
+        if not away or not home:
+            continue
 
-    return pd.DataFrame({
-        'Date': ['2025-06-30'] * len(unique_matchups),
-        'Away Team': [m[0] for m in unique_matchups],
-        'Home Team': [m[1] for m in unique_matchups],
-        'Away SP': ['Erick Fedde', 'Carlos Rodon', 'Chase Burns', 'Trevor Rogers', 'Michael Wacha', 'Logan Webb'],
-        'Home SP': ['Andrew Heaney', 'Max Scherzer', 'Garrett Crochet', 'Patrick Corbin', 'George Kirby', 'Ryne Nelson'],
-        'Away Runs': [team_runs.get(t[0], 4.5) for t in unique_matchups],
-        'Home Runs': [team_runs.get(t[1], 4.5) for t in unique_matchups]
-    })
+        date = game.get("date", "").split("T")[0]
+        # Use neutral baseline for now
+        rows.append({
+            'Date': date,
+            'Away Team': away,
+            'Home Team': home,
+            'Away Runs': 4.5,
+            'Home Runs': 4.5
+        })
 
+    return pd.DataFrame(rows)
 
-# Fetch MLB team stats from public API with error handling and fallback
+# --- Get Canadian Odds from TheOddsAPI ---
 def get_stake_odds():
     api_key = "81e55af3da11ceef34cc2920b94ba415"
-    url = f"https://api.the-odds-api.com/v4/sports/baseball_mlb/odds/?regions=us&markets=totals,h2h&oddsFormat=american&apiKey={api_key}"
+    url = f"https://api.the-odds-api.com/v4/sports/baseball_mlb/odds/?regions=ca&markets=totals,h2h&oddsFormat=decimal&apiKey={api_key}"
 
     try:
         response = requests.get(url, timeout=10)
@@ -97,7 +76,6 @@ def get_stake_odds():
         return {}
 
     odds_data = {}
-
     for game in games:
         try:
             home_full = game.get("home_team")
@@ -116,16 +94,11 @@ def get_stake_odds():
             if not outcomes or len(outcomes) < 2:
                 continue
 
-            away_full = [o["name"] for o in outcomes if o["name"] != home_full]
-            if not away_full:
-                continue
-            away_full = away_full[0]
+            away_full = [o["name"] for o in outcomes if o["name"] != home_full][0]
 
             away = TEAM_NAME_MAP.get(away_full)
             home = TEAM_NAME_MAP.get(home_full)
-
             if not away or not home:
-                st.warning(f"⚠️ Unmapped team(s): {away_full}, {home_full}")
                 continue
 
             key = tuple(sorted((away, home)))
@@ -147,33 +120,20 @@ def get_stake_odds():
                 "total_line": total_line,
                 "moneyline": moneyline
             }
-
-        except Exception as e:
-            st.warning(f"⚠️ Could not parse game odds: {e}")
+        except:
             continue
 
     return odds_data
 
-
-# Display top 3 bets
 @st.cache_data
 def get_top_confidence_plays(df):
-    if "Confidence" not in df.columns:
-        st.error("Missing 'Confidence' column in data.")
-        return pd.DataFrame()
     confidence_map = {'🟩 2U': 3, '⬜️ 1U': 2, '🟥 0.5U': 1}
     df['Score'] = df['Confidence'].map(confidence_map)
     return df.sort_values(by='Score', ascending=False).head(3)
 
-
-# Inject top picks into Streamlit view
-st.subheader("🏆 Top 3 Picks by Confidence")
+st.title(f"🏆 MLB Top 3 Confidence Picks - {datetime.today().strftime('%B %d')}")
 df = get_live_run_projections()
 odds_data = get_stake_odds()
-
-st.write("🧷 Odds Keys Returned:", list(odds_data.keys()))
-st.write("📊 Projections Data Preview:")
-st.dataframe(df)
 
 if df.empty or not odds_data:
     st.warning("⚠️ No data available from the MLB API or odds source. Top picks cannot be displayed.")
@@ -188,9 +148,9 @@ else:
         away_odds = odds.get('moneyline', {}).get(row['Away Team'])
         if away_odds is None:
             moneyline_value = 'NEUTRAL'
-        elif away_odds > 130:
+        elif away_odds >= 2.3:
             moneyline_value = 'GOOD'
-        elif away_odds < -170:
+        elif away_odds <= 1.3:
             moneyline_value = 'BAD'
         else:
             moneyline_value = 'NEUTRAL'
@@ -208,7 +168,11 @@ else:
     df[['Total Runs', 'Total Line', 'Total Play', 'Winner Odds', 'Moneyline Value', 'Confidence']] = df.apply(calculate_values, axis=1)
     top_picks = get_top_confidence_plays(df)
 
+    st.subheader("📊 Projections Data Preview:")
+    st.dataframe(df[['Date', 'Away Team', 'Home Team', 'Away Runs', 'Home Runs', 'Total Runs', 'Total Line', 'Total Play', 'Winner Odds', 'Moneyline Value']])
+
     if top_picks.empty:
         st.warning("⚠️ No confident plays found for today.")
     else:
-        st.dataframe(top_picks.drop(columns=["Score"]))
+        st.subheader("✅ Top 3 Confidence Plays")
+        st.dataframe(top_picks[['Date', 'Away Team', 'Home Team', 'Away Runs', 'Home Runs', 'Total Runs', 'Total Line', 'Total Play', 'Winner Odds', 'Moneyline Value', 'Confidence']])
