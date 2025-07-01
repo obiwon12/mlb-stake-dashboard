@@ -97,33 +97,63 @@ def get_stake_odds():
         return {}
 
     odds_data = {}
-    for game in games:
-        try:
-            home_full = game["home_team"]
-            away_full = [t for t in game["teams"] if t != home_full][0]
 
-            away = TEAM_NAME_MAP.get(away_full)
-            home = TEAM_NAME_MAP.get(home_full)
-
-            if not away or not home:
-                st.warning(f"⚠️ Unmapped teams: {away_full}, {home_full}")
-                continue
-
-            key = tuple(sorted((away, home)))
-
-            total = next((m for m in game["bookmakers"][0]["markets"] if m["key"] == "totals"), None)
-            total_line = total["outcomes"][0]["point"] if total else None
-
-            h2h = next((m for m in game["bookmakers"][0]["markets"] if m["key"] == "h2h"), None)
-            moneyline = {TEAM_NAME_MAP.get(o["name"], o["name"]): o["price"] for o in h2h["outcomes"]} if h2h else {}
-
-            odds_data[key] = {
-                "total_line": total_line,
-                "moneyline": moneyline
-            }
-        except Exception as e:
-            st.warning(f"⚠️ Could not parse game odds: {e}")
+for game in games:
+    try:
+        home_full = game.get("home_team")
+        if not home_full or "bookmakers" not in game:
             continue
+
+        # Extract teams from outcomes in any available market
+        outcomes = []
+        for bookmaker in game["bookmakers"]:
+            for market in bookmaker["markets"]:
+                if "outcomes" in market:
+                    outcomes = market["outcomes"]
+                    break
+            if outcomes:
+                break
+
+        if not outcomes or len(outcomes) < 2:
+            continue
+
+        away_full = [o["name"] for o in outcomes if o["name"] != home_full]
+        if not away_full:
+            continue
+        away_full = away_full[0]
+
+        away = TEAM_NAME_MAP.get(away_full)
+        home = TEAM_NAME_MAP.get(home_full)
+
+        if not away or not home:
+            st.warning(f"⚠️ Unmapped team(s): {away_full}, {home_full}")
+            continue
+
+        key = tuple(sorted((away, home)))
+
+        total_line = None
+        moneyline = {}
+
+        for bookmaker in game["bookmakers"]:
+            for market in bookmaker["markets"]:
+                if market["key"] == "totals":
+                    total_line = market["outcomes"][0].get("point")
+                elif market["key"] == "h2h":
+                    moneyline = {
+                        TEAM_NAME_MAP.get(o["name"], o["name"]): o["price"]
+                        for o in market["outcomes"]
+                    }
+
+        odds_data[key] = {
+            "total_line": total_line,
+            "moneyline": moneyline
+        }
+
+    except Exception as e:
+        st.warning(f"⚠️ Could not parse game odds: {e}")
+        continue
+
+
 
     return odds_data
 
